@@ -10,9 +10,10 @@ IP = "192.168.0.9"
 # 2. Orin 전용 GStreamer 파이프라인 구성 (핵심 수정 부분)
 # rtspsrc: RTSP 수신 -> nvv4l2decoder: 하드웨어 디코딩 -> nvvidconv: 하드웨어 크기 조절
 gst_pipeline = (
-    f"rtspsrc location=rtsp://{USER}:{PASS}@{IP}:554/stream2 latency=100 ! "
-    "rtph264depay ! h264parse ! nvv4l2decoder ! "
-    "nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink drop=True"
+    f"rtspsrc location=rtsp://{USER}:{PASS}@{IP}:554/stream2 protocols=tcp latency=200 ! "
+    "rtph265depay ! h265parse ! nvv4l2decoder ! "
+    "nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! "
+    "appsink drop=true sync=false max-buffers=1"
 )
 
 # 3. 모델 로드 (TensorRT .engine 사용 권장)
