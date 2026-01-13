@@ -22,6 +22,10 @@ model = YOLO("yolov8n.engine", task="detect")
 # 4. 비디오 캡처 (CAP_GSTREAMER 명시)
 cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
 
+# 디버깅 코드 추가
+ret, frame = cap.read()
+print("first read:", ret, None if frame is None else frame.shape)
+
 if not cap.isOpened():
     print("GStreamer 파이프라인 확인 필요: RTSP 연결 실패")
     exit()
