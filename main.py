@@ -2,71 +2,69 @@ import cv2
 import time
 from ultralytics import YOLO
 
+# 1. 설정값 (기존과 동일)
 USER = "admin"
 PASS = "miclab123"
-IP   = "192.168.0.9"
-url  = f"rtsp://{USER}:{PASS}@{IP}:554/stream2"  # 지연 줄이려면 stream2 권장
+IP = "192.168.0.9"
 
-model = YOLO("yolov8n.pt")
+# 2. Orin 전용 GStreamer 파이프라인 구성 (핵심 수정 부분)
+# rtspsrc: RTSP 수신 -> nvv4l2decoder: 하드웨어 디코딩 -> nvvidconv: 하드웨어 크기 조절
+gst_pipeline = (
+    f"rtspsrc location=rtsp://{USER}:{PASS}@{IP}:554/stream2 latency=100 ! "
+    "rtph264depay ! h264parse ! nvv4l2decoder ! "
+    "nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink drop=True"
+)
 
-cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+# 3. 모델 로드 (TensorRT .engine 사용 권장)
+model = YOLO("yolov8n.engine", task="detect")
+
+# 4. 비디오 캡처 (CAP_GSTREAMER 명시)
+cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+
 if not cap.isOpened():
-    raise RuntimeError("RTSP 연결 실패")
-
-# 지연 감소 시도(환경에 따라 무시될 수 있음)
-cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    print("GStreamer 파이프라인 확인 필요: RTSP 연결 실패")
+    exit()
 
 conf_thres = 0.4
-imgsz = 416                 # 640 -> 416으로 낮추면 더 빨라짐
-process_every_n = 3         # 3프레임당 1번만 추론
-drop_grabs = 5              # 매 루프마다 5프레임 버리고 최신 프레임만
-display_w = 960             # 화면 표시 폭
-
+process_every_n = 2  # GStreamer를 쓰면 성능이 좋아져서 2프레임당 1번도 충분히 가능합니다.
+last_boxes = []
 frame_idx = 0
-last_boxes = []  # 최근 탐지 결과를 저장해서 추론 안 하는 프레임에도 표시
 
 while True:
-    # 버퍼에 쌓인 프레임 버리기(최신 프레임 유지)
-    for _ in range(drop_grabs):
-        cap.grab()
-
-    ret, frame = cap.retrieve()
+    ret, frame = cap.read()  # GStreamer가 최신 프레임을 관리하므로 grab() 루프가 거의 필요없음
     if not ret:
-        time.sleep(0.2)
-        continue
+        break
 
     frame_idx += 1
 
-    # 표시/추론용으로 프레임 자체를 줄임 (예: 960폭 기준)
-    scale = display_w / frame.shape[1]
-    small = cv2.resize(frame, (display_w, int(frame.shape[0] * scale)))
-
+    # 추론 부분
     if frame_idx % process_every_n == 0:
-        results = model.predict(
-            source=small,
-            imgsz=imgsz,
-            conf=conf_thres,
-            verbose=False
-        )
+        results = model.predict(frame, imgsz=416, conf=conf_thres, verbose=False, device=0)
 
-        r = results[0]
         last_boxes = []
-        if r.boxes is not None and len(r.boxes) > 0:
+        r = results[0]
+        if r.boxes is not None:
             boxes = r.boxes.xyxy.cpu().numpy()
-            confs = r.boxes.conf.cpu().numpy()
-            clss  = r.boxes.cls.cpu().numpy()
-            for (x1, y1, x2, y2), c, cls in zip(boxes, confs, clss):
-                if int(cls) == 0:  # person
-                    last_boxes.append((int(x1), int(y1), int(x2), int(y2), float(c)))
+            confs = r.boxes.conf.cpu().numpy()  # 정확도(확률) 가져오기
+            clss = r.boxes.cls.cpu().numpy()
 
-    # 최근 결과를 계속 그려서 “부드럽게”
-    vis = small
-    for x1, y1, x2, y2, c in last_boxes:
-        cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(vis, f"person {c:.2f}", (x1, max(0, y1 - 8)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            for box, conf, cls in zip(boxes, confs, clss):
+                if int(cls) == 0:  # 사람(person)만 필터링
+                    # 좌표와 정확도를 함께 저장
+                    last_boxes.append((box.astype(int), conf))
 
-    cv2.imshow("RTSP + YOLO (low-latency)", vis)
+    # 시각화 부분
+    for (box, conf) in last_boxes:
+        x1, y1, x2, y2 = box
+        # 1. 사각형 그리기
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+        # 2. 텍스트 추가 (예: person 85%)
+        label = f"person {conf * 100:.1f}%"
+        cv2.putText(frame, label, (x1, max(0, y1 - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    cv2.imshow("Orin Optimized RTSP", frame)
     if cv2.waitKey(1) & 0xFF == 27:
         break
 
