@@ -10,12 +10,12 @@ IP = "192.168.0.9"
 # - dec. 로 decodebin의 "decoded (raw)" 출력 pad를 받음
 # - queue로 버퍼링/링킹 안정화
 gst_pipeline = (
-    f"uridecodebin uri=rtsp://{USER}:{PASS}@{IP}:554/stream2 "
-    "source::protocols=tcp source::latency=200 name=dec "
-    "dec. ! queue ! nvvidconv ! video/x-raw,format=BGRx ! "
-    "videoconvert ! video/x-raw,format=BGR ! "
+    f"rtspsrc location=rtsp://{USER}:{PASS}@{IP}:554/stream2 protocols=tcp latency=200 ! "
+    "rtph264depay ! h264parse ! nvv4l2decoder ! "
+    "nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! "
     "appsink drop=true sync=false max-buffers=1"
 )
+
 
 # 3. 모델 로드 (TensorRT .engine)
 model = YOLO("yolov8n.engine", task="detect")
