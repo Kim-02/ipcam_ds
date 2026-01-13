@@ -10,8 +10,10 @@ IP = "192.168.0.9"
 # - dec. 로 decodebin의 "decoded (raw)" 출력 pad를 받음
 # - queue로 버퍼링/링킹 안정화
 gst_pipeline = (
-    f"uridecodebin uri=rtsp://{USER}:{PASS}@{IP}:554/stream2 name=dec "
-    "dec. ! queue ! videoconvert ! video/x-raw,format=BGR ! "
+    f"uridecodebin uri=rtsp://{USER}:{PASS}@{IP}:554/stream2 "
+    "source::protocols=tcp source::latency=200 name=dec "
+    "dec. ! queue ! nvvidconv ! video/x-raw,format=BGRx ! "
+    "videoconvert ! video/x-raw,format=BGR ! "
     "appsink drop=true sync=false max-buffers=1"
 )
 
