@@ -11,8 +11,7 @@ IP = "192.168.0.9"
 # rtspsrc: RTSP 수신 -> nvv4l2decoder: 하드웨어 디코딩 -> nvvidconv: 하드웨어 크기 조절
 gst_pipeline = (
     f"rtspsrc location=rtsp://{USER}:{PASS}@{IP}:554/stream2 protocols=tcp latency=200 ! "
-    "rtph265depay ! h265parse ! nvv4l2decoder ! "
-    "nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! "
+    "decodebin ! videoconvert ! video/x-raw,format=BGR ! "
     "appsink drop=true sync=false max-buffers=1"
 )
 
